@@ -8,6 +8,7 @@ print('Tensorflow version ' + tf.__version__)
 import numpy as np
 import ImageGenerator_3D as generator
 
+#Epochs
 EPOCHS = 15
 
 class BCEModel(tf.keras.Model):
