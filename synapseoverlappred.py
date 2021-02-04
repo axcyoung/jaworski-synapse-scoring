@@ -158,6 +158,45 @@ def train(binary_model, category_model, snsX_train, snsy_train, overlapX_train, 
         
         total_loss_list.append(total_loss)
         
+        """
+        # Average gradients
+        weights = tf.reduce_mean(gradients, axis=(0, 1))
+
+        # Build a map of filters
+        grad_cam = np.ones(output.shape[0:2], dtype=np.float32)
+
+        for index, w in enumerate(weights):
+            grad_cam += w * output[:, :, index]
+
+        # Heatmap visualization
+        grad_cam = cv2.resize(grad_cam.numpy(), (224, 224))
+        grad_cam = np.maximum(grad_cam, 0)
+        heatmap = (grad_cam - grad_cam.min()) / (grad_cam.max() - grad_cam.min())
+
+        grad_cam = cv2.applyColorMap(np.uint8(255*heatmap), cv2.COLORMAP_JET)
+
+        output_image = cv2.addWeighted(cv2.cvtColor(img.astype('uint8'), cv2.COLOR_RGB2BGR), 0.5, grad_cam, 1, 0)
+    
+        #Visualizing the guided back prop
+        guided_back_prop = gradients
+        gb_viz = np.dstack((
+                    guided_back_prop[:, :, 0],
+                    guided_back_prop[:, :, 1],
+                    guided_back_prop[:, :, 2],
+                ))       
+        gb_viz -= np.min(gb_viz)
+        gb_viz /= gb_viz.max()
+        
+        guided_cam = np.maximum(grad_cam, 0)
+        guided_cam = guided_cam / np.max(guided_cam) # scale 0 to 1.0
+        guided_cam = resize(guided_cam, (224,224), preserve_range=True) #pointwise multiplcation of guided backprop and grad CAM 
+        gd_gb = np.dstack((
+                guided_back_prop[:, :, 0] * guided_cam,
+                guided_back_prop[:, :, 1] * guided_cam,
+                guided_back_prop[:, :, 2] * guided_cam,
+            ))
+        """
+        
 
 def test(model, test_inputs, test_labels, cce=False):
     """
