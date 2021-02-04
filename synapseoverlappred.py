@@ -193,13 +193,13 @@ def visualize_results(predicted_labels, true_labels):
 
 
 def main():
-    data = np.load('data_all.npy')
-    labels = np.load('labels_all.npy')
+    data = np.load('data.npy')
+    data = tf.convert_to_tensor(data, dtype=tf.float32)
+    labels = np.load('labels.npy')
+    labels = tf.convert_to_tensor(labels)
     X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=0.25, random_state=42)
-    X_train = tf.reshape(X_train, (len(X_train), 39, 10, 10, 1)) #channel1.n_frames
-    X_test = tf.reshape(X_test, (len(X_test), 39, 10, 10, 1))
-    #y_train = tf.reshape(y_train, (len(y_train)))
-    #Not yet clear how to deal with labeling between synapse v. non-synpase and overlap labels
+    print('datasize: ' + str(np.shape(data)))
+    print('labelsize: ' + str(np.shape(labels)))
     
     #Augmentation
     datagen = generator.customImageDataGenerator(
