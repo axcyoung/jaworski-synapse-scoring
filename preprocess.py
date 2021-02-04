@@ -33,8 +33,10 @@ def get_data(c_0, c_1, xml_markers):
     channel2 = Image.open(c_1)
     
     #Synapses
+    synapse_count = 0
     for marker in known_markers:
         if marker.type == 1:
+            synapse_count += 1
             new_marker = []
             for layer in range(channel1.n_frames):
                 try:
@@ -63,7 +65,7 @@ def get_data(c_0, c_1, xml_markers):
             labels.append(closest_marker.type - 2) 
             #fully innervated (2), greater than 50% innervated (3), less than 50% innervated (4), 
             #or fully denervated (5)
-    synapse_nonsynapse = [1]*len(data)
+    synapse_nonsynapse = [1]*synapse_count
         
     #Build negatives
     avoid_positives = []
@@ -76,7 +78,7 @@ def get_data(c_0, c_1, xml_markers):
                     avoid_positives.append((x, y))
     
     nonsynapse_count = 0
-    while nonsynapse_count < len(data):
+    while nonsynapse_count < synapse_count:
         rand_X = random.randint(6, channel1.size[0] - 6) 
         rand_Y = random.randint(6, channel1.size[1] - 6)
         if not ((rand_X, rand_Y) in avoid_positives):
