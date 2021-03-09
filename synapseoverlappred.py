@@ -10,75 +10,30 @@ import ImageGenerator_3D as generator
 
 #Epochs
 EPOCHS = 15
+TEST_SPLIT = 0.25
 total_loss_list = []
 
-class BCEModel(tf.keras.Model):
-    def __init__(self):
-        """
-        CNN Architecture for Synapse vs. Non-Synapse
-        """
-        super(BCEModel, self).__init__()
-
-        self.batch_size = 64
-        self.num_classes = 1 #because BCE
-        self.loss_list = []
-        self.learning_rate = .01
-        #self.dropout_rate = .3
-        #self.var_ep = .000001
-
-        self.layer1 = tf.keras.layers.Conv2D(filters=32, kernel_size=3, activation='relu')
-        self.layer2 = tf.keras.layers.Conv2D(filters=64, kernel_size=3, activation='relu')
-        self.dense1 = tf.keras.layers.Dense(self.num_classes, activation='sigmoid')
-
-    def call(self, inputs):
-        """
-        Runs a forward pass on an input batch of images.
-        :param inputs: images, shape (batch_size, 39[z], 10[y], 10[x], 1[channels])
-        :return: probs: shape (batch_size, 1[num_classes])
-        """
-        layer1Output = self.layer1(inputs)
-        layer2Output = self.layer2(layer1Output)
-        probs = self.dense1(layer2Output)
-        return probs
-
-    def loss(self, probs, labels):
-        """
-        Calculates the binary cross-entropy loss after one forward pass.
-        :param probs: shape (batch_size, 1)
-        :param labels: shape (batch_size, 1)
-        :return: loss
-        """ 
-        return tf.reduce_mean(tf.keras.losses.binary_crossentropy(labels, probs))
-        
-    def accuracy(self, probs, labels):
-        """
-        Calculates the model's prediction accuracy by comparing
-        probs to correct labels
-        :param probs: shape (batch_size, 1)
-        :param labels: shape (batch_size, 1)
-        :return: accuracy
-        """
-        correct_predictions = tf.equal(tf.argmax(probs, 1), tf.argmax(labels, 1))
-        return tf.reduce_mean(tf.cast(correct_predictions, tf.float32))
-
-
-class CCEModel(tf.keras.Model):
+class Model(tf.keras.Model):
     def __init__(self):
         """
         CNN Architecture for Synapse Overlap Prediction
         """
-        super(CCEModel, self).__init__()
+        super(Model, self).__init__()
 
         self.batch_size = 64
-        self.num_classes = 4
+        self.num_classes_BCE = 1
+        self.num_classes_CCE = 4
         self.loss_list = []
-        self.learning_rate = .01
+        self.learning_rate = .001
+        self.alpha = 0.4
         #self.dropout_rate = .3
         #self.var_ep = .000001
 
         self.layer1 = tf.keras.layers.Conv2D(filters=64, kernel_size=3, activation='relu')
         self.layer2 = tf.keras.layers.Conv2D(filters=128, kernel_size=3, activation='relu')
-        self.dense1 = tf.keras.layers.Dense(self.num_classes, activation='softmax')
+        self.layer3 = tf.keras.layers.Flatten()
+        self.dense_sig = tf.keras.layers.Dense(self.num_classes_BCE, activation='sigmoid')
+        self.dense_soft = tf.keras.layers.Dense(self.num_classes_CCE, activation='softmax')
 
     def call(self, inputs):
         """
@@ -86,21 +41,26 @@ class CCEModel(tf.keras.Model):
         :param inputs: images, shape (batch_size, 39[z], 10[y], 10[x], 1[channels])
         :return: probs: shape (batch_size, 4[num_classes])
         """
+        #print(np.shape(inputs))
         layer1Output = self.layer1(inputs)
         layer2Output = self.layer2(layer1Output)
-        probs = self.dense1(layer2Output)
-        return probs
+        layer3Output = self.layer3(layer2Output)
+        probs_s = self.dense_sig(layer3Output)
+        probs_i = self.dense_soft(layer3Output)
+        return (probs_s, probs_i)
 
-    def loss(self, probs, labels):
+    def loss(self, probs_s, probs_i, labels_s, labels_i):
         """
         Calculates the binary cross-entropy loss after one forward pass.
         :param probs: shape (batch_size, 4)
         :param labels: shape (batch_size, 4)
         :return: loss
         """ 
-        return tf.reduce_mean(tf.keras.losses.categorical_crossentropy(labels, probs))
+        L_s = tf.keras.losses.binary_crossentropy(labels_s, probs_s)
+        L_i = tf.keras.losses.categorical_crossentropy(labels_i, probs_i)
+        return tf.reduce_mean(L_s + L_i*labels_s*self.alpha)
         
-    def accuracy(self, probs, labels):
+    def accuracy(self, probs_s, probs_i, labels_s, labels_i, s_indices):
         """
         Calculates the model's prediction accuracy by comparing
         probs to correct labels
@@ -108,11 +68,14 @@ class CCEModel(tf.keras.Model):
         :param labels: shape (batch_size, 4)
         :return: accuracy
         """
-        correct_predictions = tf.equal(tf.argmax(probs, 1), tf.argmax(labels, 1))
-        return tf.reduce_mean(tf.cast(correct_predictions, tf.float32))
+        s_correct = tf.equal(tf.argmax(probs_s, 1), tf.cast(labels_s, tf.int64))
+        print('Synapse-nonsynapse accuracy: ' + str(tf.reduce_mean(tf.cast(s_correct, tf.float32))))
+        probs_i = tf.gather(probs_i, s_indices)
+        labels_i = tf.gather(labels_i, s_indices)
+        print('Confusion matrix: ' + str(tf.math.confusion_matrix(tf.argmax(labels_i, 1), tf.argmax(probs_i, 1))))
 
 
-def train(binary_model, category_model, snsX_train, snsy_train, overlapX_train, overlapy_train):
+def train(model, X_s_train, y_s_train, y_i_train):
     '''
     Trains the model on all of the inputs and labels for one epoch. Inputs are batched.
     :param model: the initialized model to use for the forward pass and backward pass
@@ -121,84 +84,34 @@ def train(binary_model, category_model, snsX_train, snsy_train, overlapX_train, 
     shape (num_labels, num_classes)
     :return: Optionally list of losses per batch to use for visualize_loss
     '''
-    alpha = 0.1
-    
-    num_examples1 = snsy_train.shape[0]
-    shuffle_indices1 = np.arange(0, num_examples1)
-    shuffle_indices1 = tf.random.shuffle(shuffle_indices1)
-    snsX_train = tf.gather(snsX_train, shuffle_indices1)
-    snsy_train = tf.gather(snsy_train, shuffle_indices1)
-    
-    num_examples2 = overlapy_train.shape[0]
-    shuffle_indices2 = np.arange(0, num_examples2)
-    shuffle_indices2 = tf.random.shuffle(shuffle_indices2)
-    overlapX_train = tf.gather(overlapX_train, shuffle_indices2)
-    overlapy_train = tf.gather(overlapy_train, shuffle_indices2)
+    num_examples = y_s_train.shape[0]
+    shuffle_indices = np.arange(0, num_examples)
+    shuffle_indices = tf.random.shuffle(shuffle_indices)
+    X_s_train = tf.gather(X_s_train, shuffle_indices)
+    y_s_train = tf.gather(y_s_train, shuffle_indices)
+    y_i_train = tf.gather(y_i_train, shuffle_indices)
 
     optimizer = tf.keras.optimizers.Adam(model.learning_rate)
 
-    for i in range(0, num_examples2, category_model.batch_size):
-        snsX_batch = snsX_train[i:i + binary_model.batch_size, :, :, :, :]
-        snsy_batch = snsy_train[i:i + binary_model.batch_size, :]
-        overlapX_batch = overlapX_train[i:i + category_model.batch_size, :, :, :, :]
-        overlapy_batch = overlapy_train[i:i + category_model.batch_size, :, :, :, :]
+    for i in range(0, num_examples, model.batch_size):
+        X_s_batch = X_s_train[i:i + model.batch_size]
+        y_s_batch = y_s_train[i:i + model.batch_size]
+        y_i_batch = y_i_train[i:i + model.batch_size]   
         
         with tf.GradientTape() as tape:
-            B_probs = binary_model.call(snsX_batch)
-            synapse_loss = model.loss(B_probs, snsy_batch)
-            C_probs = category_model.call(overlapX_batch)
-            overlap_loss = category_model.call(C_probs, overlapy_batch)
-            #total_loss = synapse_loss + ground_truth_synapse*alpha*overlap_loss
+            probs_s, probs_i = model.call(X_s_batch)
+            #print(np.shape(probs_s))
+            #print(np.shape(probs_i))
+            #print(np.shape(y_i_batch))
+            loss = model.loss(probs_s, probs_i, y_s_batch, y_i_batch)
+            #gradient masking?
 
-        gradients1 = tape.gradient(total_loss, binary_model.trainable_variables)
-        optimizer.apply_gradients(zip(gradients1, binary_model.trainable_variables))
-        
-        gradients2 = tape.gradient(total_loss, category_model.trainable_variables)
-        optimizer.apply_gradients(zip(gradients2, category_model.trainable_variables))
-        
-        total_loss_list.append(total_loss)
-        
-        """
-        # Average gradients
-        weights = tf.reduce_mean(gradients, axis=(0, 1))
-
-        # Build a map of filters
-        grad_cam = np.ones(output.shape[0:2], dtype=np.float32)
-
-        for index, w in enumerate(weights):
-            grad_cam += w * output[:, :, index]
-
-        # Heatmap visualization
-        grad_cam = cv2.resize(grad_cam.numpy(), (224, 224))
-        grad_cam = np.maximum(grad_cam, 0)
-        heatmap = (grad_cam - grad_cam.min()) / (grad_cam.max() - grad_cam.min())
-
-        grad_cam = cv2.applyColorMap(np.uint8(255*heatmap), cv2.COLORMAP_JET)
-
-        output_image = cv2.addWeighted(cv2.cvtColor(img.astype('uint8'), cv2.COLOR_RGB2BGR), 0.5, grad_cam, 1, 0)
-    
-        #Visualizing the guided back prop
-        guided_back_prop = gradients
-        gb_viz = np.dstack((
-                    guided_back_prop[:, :, 0],
-                    guided_back_prop[:, :, 1],
-                    guided_back_prop[:, :, 2],
-                ))       
-        gb_viz -= np.min(gb_viz)
-        gb_viz /= gb_viz.max()
-        
-        guided_cam = np.maximum(grad_cam, 0)
-        guided_cam = guided_cam / np.max(guided_cam) # scale 0 to 1.0
-        guided_cam = resize(guided_cam, (224,224), preserve_range=True) #pointwise multiplcation of guided backprop and grad CAM 
-        gd_gb = np.dstack((
-                guided_back_prop[:, :, 0] * guided_cam,
-                guided_back_prop[:, :, 1] * guided_cam,
-                guided_back_prop[:, :, 2] * guided_cam,
-            ))
-        """
+        gradients = tape.gradient(loss, model.trainable_variables)
+        optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+        total_loss_list.append(loss)
         
 
-def test(model, test_inputs, test_labels, cce=False):
+def test(model, X_s_test, y_s_test, y_i_test, s_indices):
     """
     Tests the model on the test inputs and labels.
     :param model: the initialized model to use for the forward pass and backward pass
@@ -207,18 +120,19 @@ def test(model, test_inputs, test_labels, cce=False):
     shape (num_labels, num_classes)
     :return: test accuracy - average accuracy across all batches
     """
-    accuracies, predicted_labels = [], []
-    for i in range(0, test_labels.shape[0], model.batch_size):
-        input_batch = test_inputs[i:i + model.batch_size, :, :, :, :]
-        label_batch = test_labels[i:i + model.batch_size, :]
+    
+    probs_s, probs_i = model.call(X_s_test)
+    model.accuracy(probs_s, probs_i, y_s_test, y_i_test, s_indices)
+    """
+    accuracies = []
+    for i in range(0, y_s_test.shape[0], model.batch_size):
+        X_s_batch = X_s_test[i:i + model.batch_size]
+        y_s_batch = y_s_test[i:i + model.batch_size]
+        y_i_batch = y_i_test[i:i + model.batch_size]
         
-        probs = model.call(input_batch)
-        accuracies.append(model.accuracy(probs, label_batch))
-        if cee:
-            predicted_labels.append(tf.argmax(probs, 1))
-    if cee:
-        visualize_results(predicted_labels, tf.argmax(test_labels, 1))
-    return np.mean(np.array(accuracies))
+        probs = model.call(X_s_batch)
+        model.accuracy(probs, label_batch)
+    """
     
 
 def visualize_loss(losses): 
@@ -249,30 +163,48 @@ def visualize_results(predicted_labels, true_labels):
 
 
 def main():
-    synnonsyn_input = np.load('data.npy')
-    synnonsyn_input = tf.convert_to_tensor(synnonsyn_input, dtype=tf.float32)
-    synnonsyn_labels = np.load('synapse_nonsynapse.npy')
-    synnonsyn_labels = tf.convert_to_tensor(synnonsyn_labels)
-    overlap_input = data[0:191]
-    overlap_labels = np.load('labels.npy')
-    overlap_labels = tf.convert_to_tensor(labels)
-    print('synapse_nonsynapse_input: ' + str(np.shape(synnonsyn_input)))
-    print('synapse_nonsynapse_labels: ' + str(np.shape(synnonsyn_labels)))
-    print('overlap_input: ' + str(np.shape(overlap_input)))
-    print('overlap_labels: ' + str(np.shape(overlap_labels)))
+    s_input = np.load('data.npy')
+    s_input = tf.convert_to_tensor(s_input, dtype=tf.float32)
+    s_labels = np.load('synapse_nonsynapse.npy')
+    s_labels = tf.convert_to_tensor(s_labels, dtype=tf.float32)
+    i_labels = np.load('labels.npy')
+    i_labels = tf.convert_to_tensor(i_labels, dtype=tf.float32)
+    print('synapse_nonsynapse_input: ' + str(np.shape(s_input)))
+    print('synapse_nonsynapse_labels: ' + str(np.shape(s_labels)))
+    print('overlap_labels: ' + str(np.shape(i_labels)))
     
-    snsX_train, snsX_test, snsy_train, snsy_test = train_test_split(synnonsyn_input, synnonsyn_labels, test_size=0.25, random_state=42)
-    overlapX_train, overlapX_test, overlapy_train, overlapy_test = train_test_split(overlap_input, overlap_labels, test_size=0.25, random_state=42)
+    #Split training and testing
+    num_examples = s_labels.shape[0]
+    shuffle_indices = np.arange(0, num_examples)
+    shuffle_indices = tf.random.shuffle(shuffle_indices)
+    s_input = tf.gather(s_input, shuffle_indices)
+    s_labels = tf.gather(s_labels, shuffle_indices)
+    i_labels = tf.gather(i_labels, shuffle_indices)
     
-    binary_model = BCEModel()
-    category_model = CCEModel()
+    split_index = int(num_examples*TEST_SPLIT)
+    X_s_train = s_input[0:split_index]
+    y_s_train = s_labels[0:split_index]
+    y_i_train = i_labels[0:split_index]
+    X_s_test = s_input[split_index:num_examples]
+    y_s_test = s_labels[split_index:num_examples]
+    y_i_test = i_labels[split_index:num_examples]
+    
+    print(np.histogram(i_labels))
+    
+    shuffle_indices = shuffle_indices[split_index:num_examples]
+    s_indices = []
+    for i in range(shuffle_indices.shape[0]):
+        if shuffle_indices[i] <= 191:
+            s_indices.append(i)
+    s_indices = tf.convert_to_tensor(s_indices)
+    
+    m = Model()
     for i in range(EPOCHS):
-        train(binary_model, category_model, snsX_train, snsy_train, overlapX_train, overlapy_train)
+        train(m, X_s_train, y_s_train, y_i_train)
         
-    print('Synapse-nonsynapse accuracy: ' + str(test(binary_model, snsX_test, snsy_test)))
-    print('Synapse overlap accuracy: ' + str(test(category_model, overlapX_test, overlapy_test, cce=True)))
-    visualize_loss(binary_model.loss_list)
-    visualize_loss(category_model.loss_list)
+    test(m, X_s_test, y_s_test, y_i_test, s_indices)
+    visualize_loss(total_loss_list)
+    #print(total_loss_list[len(total_loss_list)-10:len(total_loss_list)])
     return
 
 if __name__ == '__main__':

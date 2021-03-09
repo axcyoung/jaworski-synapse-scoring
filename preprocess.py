@@ -65,6 +65,7 @@ def get_data(c_0, c_1, xml_markers):
             labels.append(closest_marker.type - 2) 
             #fully innervated (2), greater than 50% innervated (3), less than 50% innervated (4), 
             #or fully denervated (5)
+    labels += [3]*synapse_count #filler so that size matches?
     synapse_nonsynapse = [1]*synapse_count
         
     #Build negatives
@@ -111,7 +112,7 @@ def get_data(c_0, c_1, xml_markers):
     labels = tf.one_hot(labels, 4, dtype=tf.float32)
     
     synapse_nonsynapse = np.array(synapse_nonsynapse)
-    synapse_nonsynapse = tf.one_hot(synapse_nonsynapse, 2, dtype=tf.float32)
+    #synapse_nonsynapse = tf.one_hot(synapse_nonsynapse, 1, dtype=tf.float32)
     
     print('datasize: ' + str(np.shape(data)))
     print(data[0:10])
