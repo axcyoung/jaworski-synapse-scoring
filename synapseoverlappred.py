@@ -9,9 +9,10 @@ import numpy as np
 import ImageGenerator_3D as generator
 
 #Epochs
-EPOCHS = 15
-TEST_SPLIT = 0.25
+EPOCHS = 10
+TRAIN_SPLIT = 0.75
 total_loss_list = []
+accuracy_list = []
 
 class Model(tf.keras.Model):
     def __init__(self):
@@ -25,15 +26,19 @@ class Model(tf.keras.Model):
         self.num_classes_CCE = 4
         self.loss_list = []
         self.learning_rate = .001
-        self.alpha = 0.4
+        self.alpha = 0.0
         #self.dropout_rate = .3
         #self.var_ep = .000001
 
-        self.layer1 = tf.keras.layers.Conv2D(filters=64, kernel_size=3, activation='relu')
-        self.layer2 = tf.keras.layers.Conv2D(filters=128, kernel_size=3, activation='relu')
-        self.layer3 = tf.keras.layers.Flatten()
+        self.layer1 = tf.keras.layers.Conv2D(filters=32, kernel_size=3, activation='relu')
+        self.layer2 = tf.keras.layers.Conv2D(filters=64, kernel_size=3, activation='relu')
+        self.layer3 = tf.keras.layers.Conv2D(filters=128, kernel_size=6, activation='relu')
+        self.layer4 = tf.keras.layers.Flatten()
         self.dense_sig = tf.keras.layers.Dense(self.num_classes_BCE, activation='sigmoid')
         self.dense_soft = tf.keras.layers.Dense(self.num_classes_CCE, activation='softmax')
+        
+    #def lr_decay(epoch):
+    #    self.learning_rate = 0.01 * math.pow(0.6, epoch)
 
     def call(self, inputs):
         """
@@ -45,8 +50,10 @@ class Model(tf.keras.Model):
         layer1Output = self.layer1(inputs)
         layer2Output = self.layer2(layer1Output)
         layer3Output = self.layer3(layer2Output)
-        probs_s = self.dense_sig(layer3Output)
-        probs_i = self.dense_soft(layer3Output)
+        layer4Output = self.layer4(layer3Output)
+        probs_s = self.dense_sig(layer4Output)
+        probs_i = self.dense_soft(layer4Output)
+        print(probs_s[0:5])
         return (probs_s, probs_i)
 
     def loss(self, probs_s, probs_i, labels_s, labels_i):
@@ -68,11 +75,17 @@ class Model(tf.keras.Model):
         :param labels: shape (batch_size, 4)
         :return: accuracy
         """
-        s_correct = tf.equal(tf.argmax(probs_s, 1), tf.cast(labels_s, tf.int64))
+        probs_s = tf.reshape(probs_s, (-1))
+        #print(probs_s[0:10])
+        #print(tf.round(probs_s[0:10]))
+        #print(labels_s[0:10])
+        #print(tf.equal(tf.round(probs_s[0:10]), labels_s[0:10]))
+        s_correct = tf.equal(tf.round(probs_s), labels_s)
         print('Synapse-nonsynapse accuracy: ' + str(tf.reduce_mean(tf.cast(s_correct, tf.float32))))
+        accuracy_list.append(tf.reduce_mean(tf.cast(s_correct, tf.float32)))
         probs_i = tf.gather(probs_i, s_indices)
         labels_i = tf.gather(labels_i, s_indices)
-        print('Confusion matrix: ' + str(tf.math.confusion_matrix(tf.argmax(labels_i, 1), tf.argmax(probs_i, 1))))
+        #print('Confusion matrix: ' + str(tf.math.confusion_matrix(tf.argmax(labels_i, 1), tf.argmax(probs_i, 1))))
 
 
 def train(model, X_s_train, y_s_train, y_i_train):
@@ -135,7 +148,7 @@ def test(model, X_s_test, y_s_test, y_i_test, s_indices):
     """
     
 
-def visualize_loss(losses): 
+def visualize(losses): 
     """
     Uses Matplotlib to visualize the losses of our model.
     :param losses: list of loss data stored from train. Can use the model's loss_list 
@@ -181,15 +194,13 @@ def main():
     s_labels = tf.gather(s_labels, shuffle_indices)
     i_labels = tf.gather(i_labels, shuffle_indices)
     
-    split_index = int(num_examples*TEST_SPLIT)
+    split_index = int(num_examples*TRAIN_SPLIT)
     X_s_train = s_input[0:split_index]
     y_s_train = s_labels[0:split_index]
     y_i_train = i_labels[0:split_index]
     X_s_test = s_input[split_index:num_examples]
     y_s_test = s_labels[split_index:num_examples]
     y_i_test = i_labels[split_index:num_examples]
-    
-    print(np.histogram(i_labels))
     
     shuffle_indices = shuffle_indices[split_index:num_examples]
     s_indices = []
@@ -201,9 +212,12 @@ def main():
     m = Model()
     for i in range(EPOCHS):
         train(m, X_s_train, y_s_train, y_i_train)
+        test(m, X_s_test, y_s_test, y_i_test, s_indices)
+        #m.lr_decay(i)
         
     test(m, X_s_test, y_s_test, y_i_test, s_indices)
-    visualize_loss(total_loss_list)
+    visualize(total_loss_list)
+    visualize(accuracy_list)
     #print(total_loss_list[len(total_loss_list)-10:len(total_loss_list)])
     return
 
