@@ -42,6 +42,7 @@ EPOCHS = 10
 data = np.load('data.npy')
 labels = np.load('synapse_nonsynapse.npy')
 
+#Various graphing utilities, scroll down to line 119
 def plot_learning_rate(lr_func, epochs):
   xx = np.arange(epochs+1, dtype=np.float)
   y = [lr_decay(x) for x in xx]
@@ -128,7 +129,7 @@ print('X_train shape: ' + str(X_train.shape) + '\n' +
 #  layers.experimental.preprocessing.RandomRotation(0.2),
 #])
 
-#train model
+#Train model
 model = tf.keras.Sequential(
   [
     tf.keras.layers.Reshape(input_shape=(39, 10, 10), target_shape=(39, 10, 10, 1)),
@@ -143,7 +144,7 @@ model.compile(optimizer=tf.keras.optimizers.Adam(lr=0.01),
               loss='binary_crossentropy',
               metrics=['accuracy'])
 
-# utility callback that displays training curves
+# Utility callback that displays training curves
 plot_training = PlotTraining(sample_rate=10, zoom=5)
 
 # lr decay function

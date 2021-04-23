@@ -26,7 +26,7 @@ class Model(tf.keras.Model):
         self.num_classes_CCE = 4
         self.loss_list = []
         self.learning_rate = .001
-        self.alpha = 0.0
+        self.alpha = 0.0 #gradient masking constant
         #self.dropout_rate = .3
         #self.var_ep = .000001
 
@@ -34,6 +34,7 @@ class Model(tf.keras.Model):
         self.layer2 = tf.keras.layers.Conv2D(filters=64, kernel_size=3, activation='relu')
         self.layer3 = tf.keras.layers.Conv2D(filters=128, kernel_size=6, activation='relu')
         self.layer4 = tf.keras.layers.Flatten()
+        #dense_sig 1-class for classifying synapse-nonsynapse, dense_soft 4-class for overlap scoring
         self.dense_sig = tf.keras.layers.Dense(self.num_classes_BCE, activation='sigmoid')
         self.dense_soft = tf.keras.layers.Dense(self.num_classes_CCE, activation='softmax')
         
@@ -83,8 +84,8 @@ class Model(tf.keras.Model):
         s_correct = tf.equal(tf.round(probs_s), labels_s)
         print('Synapse-nonsynapse accuracy: ' + str(tf.reduce_mean(tf.cast(s_correct, tf.float32))))
         accuracy_list.append(tf.reduce_mean(tf.cast(s_correct, tf.float32)))
-        probs_i = tf.gather(probs_i, s_indices)
-        labels_i = tf.gather(labels_i, s_indices)
+        #probs_i = tf.gather(probs_i, s_indices)
+        #labels_i = tf.gather(labels_i, s_indices)
         #print('Confusion matrix: ' + str(tf.math.confusion_matrix(tf.argmax(labels_i, 1), tf.argmax(probs_i, 1))))
 
 
@@ -176,11 +177,11 @@ def visualize_results(predicted_labels, true_labels):
 
 
 def main():
-    s_input = np.load('data.npy')
+    s_input = np.load('data.npy') #max pixel values, shape (n, 39, 10, 10, 1)
     s_input = tf.convert_to_tensor(s_input, dtype=tf.float32)
-    s_labels = np.load('synapse_nonsynapse.npy')
+    s_labels = np.load('synapse_nonsynapse.npy') #synapse-nonsynapse labels, shape (n)
     s_labels = tf.convert_to_tensor(s_labels, dtype=tf.float32)
-    i_labels = np.load('labels.npy')
+    i_labels = np.load('labels.npy') #one-hot overlap labels padded to correct size, shape (n, 4)
     i_labels = tf.convert_to_tensor(i_labels, dtype=tf.float32)
     print('synapse_nonsynapse_input: ' + str(np.shape(s_input)))
     print('synapse_nonsynapse_labels: ' + str(np.shape(s_labels)))
@@ -202,17 +203,18 @@ def main():
     y_s_test = s_labels[split_index:num_examples]
     y_i_test = i_labels[split_index:num_examples]
     
-    shuffle_indices = shuffle_indices[split_index:num_examples]
-    s_indices = []
-    for i in range(shuffle_indices.shape[0]):
-        if shuffle_indices[i] <= 191:
-            s_indices.append(i)
-    s_indices = tf.convert_to_tensor(s_indices)
+    #For properly removing padding for overlap score accuracy
+    #shuffle_indices = shuffle_indices[split_index:num_examples]
+    #s_indices = []
+    #for i in range(shuffle_indices.shape[0]):
+    #    if shuffle_indices[i] <= 191:
+    #        s_indices.append(i)
+    # s_indices = tf.convert_to_tensor(s_indices)
     
     m = Model()
     for i in range(EPOCHS):
         train(m, X_s_train, y_s_train, y_i_train)
-        test(m, X_s_test, y_s_test, y_i_test, s_indices)
+        test(m, X_s_test, y_s_test, y_i_test, [])
         #m.lr_decay(i)
         
     test(m, X_s_test, y_s_test, y_i_test, s_indices)

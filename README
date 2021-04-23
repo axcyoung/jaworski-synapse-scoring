@@ -1,2 +1,8 @@
 README
-synapseoverlappred.py is current working file for synapse-nonsynapse and synapse overlap prediction.
+synapseoverlappred.py is the current architecture for synapse-nonsynapse and synapse overlap score prediction. Currently bugged - cannot reproduce the results of functional_sns.py even with all the overlap score portions masked or commented out.
+
+functional_sns.py is a previous architecture for simply classifying synapse and nonsynapse. It has accuracy and validation accuracy ~93%.
+
+preprocess.py builds and saves a tensor of max pixel values with shape (n, 39, 10, 10, 1) (that is, (39, 10, 10, 1) windows around each of the n synapses), a tensor of synapse-nonsynapse labels with shape (n), and a one-hot tensor of overlap scoring labels with shape (n, 4). These are saved in data.npy, synapse_nonsynapse.npy, and labels.npy, respectively. 
+
+synapseoverlappred.py and functional_sns.py both run on these same three feature and label sets.
