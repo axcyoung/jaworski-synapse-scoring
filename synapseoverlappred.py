@@ -9,7 +9,7 @@ import numpy as np
 import ImageGenerator_3D as generator
 
 #Epochs
-EPOCHS = 10
+EPOCHS = 5
 TRAIN_SPLIT = 0.75
 total_loss_list = []
 accuracy_list = []
@@ -21,11 +21,11 @@ class Model(tf.keras.Model):
         """
         super(Model, self).__init__()
 
-        self.batch_size = 64
+        self.batch_size = 128
         self.num_classes_BCE = 1
         self.num_classes_CCE = 4
         self.loss_list = []
-        self.learning_rate = .001
+        self.learning_rate = .01
         self.alpha = 0.0 #gradient masking constant
         #self.dropout_rate = .3
         #self.var_ep = .000001
@@ -54,8 +54,9 @@ class Model(tf.keras.Model):
         layer4Output = self.layer4(layer3Output)
         probs_s = self.dense_sig(layer4Output)
         probs_i = self.dense_soft(layer4Output)
-        print(probs_s[0:5])
-        return (probs_s, probs_i)
+        #print(probs_s[0:5])
+        #return (probs_s, probs_i)
+        return probs_s
 
     def loss(self, probs_s, probs_i, labels_s, labels_i):
         """
@@ -64,7 +65,7 @@ class Model(tf.keras.Model):
         :param labels: shape (batch_size, 4)
         :return: loss
         """ 
-        L_s = tf.keras.losses.binary_crossentropy(labels_s, probs_s)
+        L_s = tf.keras.losses.binary_crossentropy(labels_s, probs_s) #comment out all L_i, labels_i
         L_i = tf.keras.losses.categorical_crossentropy(labels_i, probs_i)
         return tf.reduce_mean(L_s + L_i*labels_s*self.alpha)
         
@@ -135,8 +136,9 @@ def test(model, X_s_test, y_s_test, y_i_test, s_indices):
     :return: test accuracy - average accuracy across all batches
     """
     
-    probs_s, probs_i = model.call(X_s_test)
-    model.accuracy(probs_s, probs_i, y_s_test, y_i_test, s_indices)
+    #probs_s, probs_i = model.call(X_s_test)
+    probs_s = model.call(X_s_test)
+    model.accuracy(probs_s, [], y_s_test, y_i_test, s_indices)
     """
     accuracies = []
     for i in range(0, y_s_test.shape[0], model.batch_size):
@@ -187,7 +189,7 @@ def main():
     print('synapse_nonsynapse_labels: ' + str(np.shape(s_labels)))
     print('overlap_labels: ' + str(np.shape(i_labels)))
     
-    #Split training and testing
+    #Split training and testing, maybe use sklearn train_test_split
     num_examples = s_labels.shape[0]
     shuffle_indices = np.arange(0, num_examples)
     shuffle_indices = tf.random.shuffle(shuffle_indices)
@@ -211,13 +213,22 @@ def main():
     #        s_indices.append(i)
     # s_indices = tf.convert_to_tensor(s_indices)
     
+    print("X_s_train shape: " + str(np.shape(X_s_train)))
+    print("y_s_train shape: " + str(np.shape(y_s_train)))
+    
     m = Model()
-    for i in range(EPOCHS):
-        train(m, X_s_train, y_s_train, y_i_train)
-        test(m, X_s_test, y_s_test, y_i_test, [])
+    m.compile(optimizer=tf.keras.optimizers.Adam(lr=0.01),
+                  loss='binary_crossentropy',
+                  metrics=['accuracy'])
+    history = m.fit(x=X_s_train, y=y_s_train, steps_per_epoch=len(X_s_train) / 32, epochs=EPOCHS,
+                    validation_data=(X_s_test, y_s_test))
+    #for i in range(EPOCHS):
+    #    train(m, X_s_train, y_s_train, y_i_train)
+    #    test(m, X_s_test, y_s_test, y_i_test, [])
         #m.lr_decay(i)
         
-    test(m, X_s_test, y_s_test, y_i_test, s_indices)
+    test(m, X_s_train, y_s_train, y_i_train, [])
+    #test(m, X_s_test, y_s_test, y_i_test, s_indices)
     visualize(total_loss_list)
     visualize(accuracy_list)
     #print(total_loss_list[len(total_loss_list)-10:len(total_loss_list)])
