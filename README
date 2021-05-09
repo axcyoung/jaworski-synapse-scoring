@@ -1,4 +1,3 @@
-README
 synapseoverlappred.py is the current architecture for synapse-nonsynapse and synapse overlap score prediction. Currently bugged - cannot reproduce the results of functional_sns.py even with all the overlap score portions masked or commented out.
 
 functional_sns.py is a previous architecture for simply classifying synapse and nonsynapse. It has accuracy and validation accuracy ~93%.
